@@ -12,6 +12,9 @@ app = Flask(__name__)
 # ตัวแปร Global สำหรับเก็บ Log
 output_logs = []
 
+# เก็บ process พื้นหลังที่กำลังทำงานอยู่
+running_process = None
+
 # โฟลเดอร์ปัจจุบัน
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROGRAM_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "program"))
@@ -26,7 +29,7 @@ def get_script_path(mode):
     return os.path.join(PROGRAM_DIR, filename)
 
 def run_script(script_path, phone, count):
-    global output_logs
+    global output_logs, running_process
     try:
         output_logs.clear()
         output_logs.append(f"[*] เริ่มรันไฟล์: {script_path}")
@@ -41,6 +44,7 @@ def run_script(script_path, phone, count):
             bufsize=1,
             cwd=PROGRAM_DIR
         )
+        running_process = process
 
         try:
             input_str = f"{phone}\n{count}\n"
@@ -61,9 +65,11 @@ def run_script(script_path, phone, count):
             output_logs.append(f"[!] Error: {stderr}")
 
         output_logs.append("[*] ทำงานเสร็จสิ้น")
+        running_process = None
 
     except Exception as e:
         output_logs.append(f"[!] System Error: {e}")
+        running_process = None
 
 @app.route("/")
 def index():
@@ -91,6 +97,51 @@ def run():
 @app.route("/get_logs")
 def get_logs():
     return jsonify(output_logs)
+
+@app.route("/stop_fire", methods=["POST"])
+def stop_fire():
+    """ฆ่า process พื้นหลัง (SMS script) แต่ Flask ยังทำงานต่อ"""
+    global running_process, output_logs
+    try:
+        if running_process and running_process.poll() is None:
+            running_process.kill()
+            running_process.wait()
+            running_process = None
+            output_logs.append("[!] หยุดยิงแล้ว — process ถูกฆ่าเรียบร้อย")
+            return jsonify({"status": "success", "message": "หยุดยิงเรียบร้อย"})
+        else:
+            return jsonify({"status": "info", "message": "ไม่มี process ที่กำลังทำงานอยู่"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route("/shutdown", methods=["POST"])
+def shutdown():
+    """ปิดระบบทั้งหมด — ฆ่า background process และ Flask server"""
+    global running_process, output_logs
+    is_termux = "ANDROID_ROOT" in os.environ
+
+    def do_shutdown():
+        time.sleep(0.5)  # รอให้ response ส่งกลับก่อน
+
+        # ฆ่า background process ก่อน
+        if running_process and running_process.poll() is None:
+            try:
+                running_process.kill()
+                running_process.wait()
+            except Exception:
+                pass
+
+        if is_termux:
+            # Termux: ฆ่า session นี้ → clear → แสดง motd
+            # Chrome ปิดหน้าเว็บฝั่ง JS (window.close()) แล้ว user กลับมาดู Termux เอง
+            subprocess.Popen(["bash", "-c", "kill $PPID; clear; cat $PREFIX/etc/motd"])
+        else:
+            # Windows: เคลียร์หน้าจอ CMD แล้วปิดแค่ Python — CMD/PowerShell ยังอยู่ครบ
+            subprocess.Popen("cls", shell=True)
+            os.kill(os.getpid(), 9)
+
+    threading.Thread(target=do_shutdown, daemon=True).start()
+    return jsonify({"status": "success", "message": "กำลังปิดระบบ..."})
 
 # ฟังก์ชันเปิดเว็บอัตโนมัติ
 def open_browser():
