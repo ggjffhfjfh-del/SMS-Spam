@@ -113,6 +113,29 @@
         .risk-med { background: rgba(138, 43, 226, 0.2); color: #d896ff; }
         .risk-low { background: rgba(0, 255, 0, 0.1); color: #55ff55; }
 
+        /* Control Button Group (หยุดยิง / ปิดระบบ) */
+        .ctrl-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .btn-stop {
+            flex: 1;
+            background: linear-gradient(45deg, #ff8c00, #ffd700);
+            box-shadow: 0 4px 10px rgba(255, 140, 0, 0.35);
+        }
+        .btn-stop:hover { opacity: 0.88; }
+        .btn-shutdown {
+            flex: 1;
+            background: linear-gradient(45deg, #cc0000, #ff3333);
+            box-shadow: 0 4px 10px rgba(204, 0, 0, 0.4);
+        }
+        .btn-shutdown:hover { opacity: 0.88; }
+        .btn-shutdown:disabled, .btn-stop:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
     </style>
 </head>
 <body>
@@ -132,6 +155,12 @@
     </div>
 
     <div id="log-container"> >> รอคำสั่งทำงาน...</div>
+
+    <!-- ปุ่มควบคุม -->
+    <div class="ctrl-group">
+        <button class="btn-stop" onclick="stopFire()">🛑 หยุดยิง</button>
+        <button class="btn-shutdown" onclick="shutdownSystem()">⚠️ ปิดระบบ</button>
+    </div>
 
     <div class="info-header">🔍 รายละเอียดโหมดการทำงาน</div>
     <div class="info-grid">
@@ -227,6 +256,7 @@
                 let formattedLogs = logs.map(line => {
                     if(line.includes("Error") || line.includes("ตาย")) return `<span style="color:#ff5555">${line}</span>`;
                     if(line.includes("สำเร็จ") || line.includes("Pass")) return `<span style="color:#55ff55">${line}</span>`;
+                    if(line.includes("หยุดยิง")) return `<span style="color:#ffd700">${line}</span>`;
                     return line;
                 }).join('<br>');
                 
@@ -235,7 +265,57 @@
             }
         });
     }
+
+    // ===== หยุดยิง: ฆ่า process พื้นหลัง, Flask ยังทำงาน =====
+    function stopFire() {
+        const logBox = document.getElementById('log-container');
+        const btn = event.currentTarget;
+        btn.disabled = true;
+        btn.textContent = '⏳ กำลังหยุด...';
+
+        fetch('/stop_fire', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            logBox.innerHTML += `<br><span style="color:#ffd700">[!] ${data.message}</span>`;
+            logBox.scrollTop = logBox.scrollHeight;
+            if (logInterval) clearInterval(logInterval);
+        })
+        .catch(() => {
+            logBox.innerHTML += `<br><span style="color:#ff5555">[!] ไม่สามารถเชื่อมต่อ server</span>`;
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '🛑 หยุดยิง';
+        });
+    }
+
+    // ===== ปิดระบบ: ฆ่าทุกอย่างรวมถึง Flask และ Termux session =====
+    function shutdownSystem() {
+        if (!confirm('⚠️ ยืนยันปิดระบบ?')) return;
+
+        const logBox = document.getElementById('log-container');
+        const btn = event.currentTarget;
+        btn.disabled = true;
+        btn.textContent = '⏳ กำลังปิด...';
+        if (logInterval) clearInterval(logInterval);
+
+        logBox.innerHTML += `<br><span style="color:#ff5555">[!] กำลังส่งคำสั่งปิดระบบ...</span>`;
+
+        fetch('/shutdown', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            logBox.innerHTML += `<br><span style="color:#ff5555">[!] ${data.message}</span>`;
+            logBox.scrollTop = logBox.scrollHeight;
+            // ปิดหน้าต่างเว็บฝั่ง client หลัง 800ms (รอ server ตอบกลับ)
+            setTimeout(() => { window.close(); }, 800);
+        })
+        .catch(() => {
+            // Server ปิดไปแล้วก่อน response จะมาถึงก็ได้ — ให้ปิดเว็บต่อไป
+            setTimeout(() => { window.close(); }, 500);
+        });
+    }
 </script>
 
 </body>
 </html>
+
