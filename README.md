@@ -31,3 +31,4 @@ RUN-SMS-WEB
 ### แล้วเข้า http://127.0.0.1:8080 ต้องรัน RUN-SMS-WEB ก่อนเท่านั้นถึงจะเข้าได้❗
 ## ลิ้งค์โหลด Termux
 https://f-droid.org/repo/com.termux_1002.apk
+
